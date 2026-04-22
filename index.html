@@ -18,7 +18,8 @@
         #world {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
-            transform-origin: center center; will-change: transform;
+            transform-origin: 0 0;
+            will-change: transform;
         }
 
         .soot-item {
@@ -34,7 +35,6 @@
             pointer-events: none; display: block;
         }
 
-        /* 缩放中状态 */
         .soot-item.resizing {
             transition: none !important;
             z-index: 9999 !important;
@@ -127,6 +127,7 @@
         }
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -233,16 +234,21 @@
                 this.dragItem = null;
                 this.dragOffsetX = 0; this.dragOffsetY = 0;
 
-                // 双指缩放画布
-                this.lastPinchDist = 0;
-                this.lastPinchCenter = { x: 0, y: 0 };
+                this.isPinchingCanvas = false;
+                this.pinchInitialDist = 0;
+                this.pinchInitialCenter = { x: 0, y: 0 };
+                this.pinchInitialScale = 1;
+                this.pinchInitialPanX = 0;
+                this.pinchInitialPanY = 0;
 
-                // 双指缩放单张图片
                 this.isResizingItem = false;
                 this.resizeItem = null;
+                this.resizeItemId = null;
                 this.resizeStartDist = 0;
                 this.resizeStartWidth = 0;
-                this.resizeItemId = null;
+
+                // 修复：touch/mouse 事件竞争标记
+                this.touchActive = false;
 
                 this.objectURLs = new Set();
 
@@ -302,13 +308,16 @@
                     this.handleFiles(e.dataTransfer.files);
                 });
 
-                this.world.addEventListener('mousedown', e => this.onPointerDown(e.clientX, e.clientY, e.target));
-                window.addEventListener('mousemove', e => this.onPointerMove(e.clientX, e.clientY));
-                window.addEventListener('mouseup', () => this.onPointerUp());
+                // 桌面端 mouse 事件
+                this.world.addEventListener('mousedown', e => this.onMouseDown(e));
+                window.addEventListener('mousemove', e => this.onMouseMove(e));
+                window.addEventListener('mouseup', () => this.onMouseUp());
 
+                // 移动端 touch 事件
                 this.world.addEventListener('touchstart', e => this.onTouchStart(e), { passive: false });
                 this.world.addEventListener('touchmove', e => this.onTouchMove(e), { passive: false });
                 this.world.addEventListener('touchend', () => this.onTouchEnd());
+                this.world.addEventListener('touchcancel', () => this.onTouchEnd());
 
                 window.addEventListener('wheel', e => {
                     e.preventDefault();
@@ -324,40 +333,88 @@
                 }
             }
 
-            // ===== 触摸事件处理（核心改动） =====
+            // ===== 清除所有 selected 类 =====
+            clearAllSelected() {
+                document.querySelectorAll('.soot-item.selected').forEach(el => {
+                    el.classList.remove('selected');
+                });
+            }
+
+            // ===== 以任意点为中心自然缩放 =====
+            zoomTo(delta, cx, cy) {
+                const worldX = (cx - this.panX) / this.scale;
+                const worldY = (cy - this.panY) / this.scale;
+                const newScale = Math.max(0.2, Math.min(5, this.scale * delta));
+                this.panX = cx - worldX * newScale;
+                this.panY = cy - worldY * newScale;
+                this.scale = newScale;
+                this.updateTransform();
+                this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
+            }
+
+            // ===== 桌面端 Mouse 事件 =====
+            onMouseDown(e) {
+                // 修复：如果 touch 正在活跃，忽略 mouse 事件
+                if (this.touchActive) return;
+                this.onPointerDown(e.clientX, e.clientY, e.target);
+            }
+
+            onMouseMove(e) {
+                if (this.touchActive) return;
+                this.onPointerMove(e.clientX, e.clientY);
+            }
+
+            onMouseUp() {
+                if (this.touchActive) return;
+                if (this.dragItem) {
+                    this.dragItem.classList.remove('selected');
+                    this.saveSpacesMeta();
+                }
+                this.isDragging = false;
+                this.isPanning = false;
+                this.dragItem = null;
+            }
+
+            // ===== 移动端 Touch 事件 =====
             onTouchStart(e) {
+                this.touchActive = true;
+                clearTimeout(this.touchTimer);
+
                 if (e.touches.length === 1) {
                     const t = e.touches[0];
+                    // 修复：先清除所有旧的 selected，再设置新的
+                    this.clearAllSelected();
                     this.onPointerDown(t.clientX, t.clientY, e.target);
                 } else if (e.touches.length === 2) {
-                    // 双指开始：判断是否在图片上
                     const t1 = e.touches[0];
                     const t2 = e.touches[1];
 
-                    // 检查两个触摸点是否都在同一张图片上
+                    // 清除所有选中状态
+                    this.clearAllSelected();
+                    this.cancelDragAndPan();
+
                     const el1 = document.elementFromPoint(t1.clientX, t1.clientY);
                     const el2 = document.elementFromPoint(t2.clientX, t2.clientY);
                     const item1 = el1 ? el1.closest('.soot-item') : null;
                     const item2 = el2 ? el2.closest('.soot-item') : null;
 
                     if (item1 && item1 === item2) {
-                        // 双指在同一张图片上 → 调整该图片大小
                         this.isResizingItem = true;
                         this.resizeItem = item1;
                         this.resizeItemId = parseFloat(item1.dataset.id);
                         this.resizeStartDist = this.getDist(t1, t2);
                         this.resizeStartWidth = parseFloat(item1.style.width);
-                        this.isDragging = false;
-                        this.isPanning = false;
-                        this.dragItem = null;
                         item1.classList.add('resizing');
                     } else {
-                        // 双指不在同一张图片上 → 缩放画布
-                        this.isDragging = false;
-                        this.isPanning = false;
-                        this.dragItem = null;
-                        this.lastPinchDist = this.getDist(t1, t2);
-                        this.lastPinchCenter = { x: (t1.clientX + t2.clientX)/2, y: (t1.clientY + t2.clientY)/2 };
+                        this.isPinchingCanvas = true;
+                        this.pinchInitialDist = this.getDist(t1, t2);
+                        this.pinchInitialCenter = {
+                            x: (t1.clientX + t2.clientX) / 2,
+                            y: (t1.clientY + t2.clientY) / 2
+                        };
+                        this.pinchInitialScale = this.scale;
+                        this.pinchInitialPanX = this.panX;
+                        this.pinchInitialPanY = this.panY;
                     }
                 }
             }
@@ -372,33 +429,32 @@
                     const t2 = e.touches[1];
 
                     if (this.isResizingItem && this.resizeItem) {
-                        // 调整单张图片大小
                         const dist = this.getDist(t1, t2);
                         const ratio = dist / this.resizeStartDist;
                         const newWidth = Math.max(80, Math.min(800, this.resizeStartWidth * ratio));
-
                         this.resizeItem.style.width = newWidth + 'px';
 
-                        // 实时更新数据
                         const space = this.spaces[this.currentSpaceId];
                         const img = space.images.find(i => i.id === this.resizeItemId);
                         if (img) img.width = newWidth;
-                    } else {
-                        // 缩放画布
-                        const dist = this.getDist(t1, t2);
-                        const center = { x: (t1.clientX + t2.clientX)/2, y: (t1.clientY + t2.clientY)/2 };
 
-                        if (this.lastPinchDist > 0) {
-                            const ratio = dist / this.lastPinchDist;
-                            const newScale = Math.max(0.2, Math.min(5, this.scale * ratio));
-                            this.panX = center.x - (center.x - this.panX) * (newScale / this.scale);
-                            this.panY = center.y - (center.y - this.panY) * (newScale / this.scale);
-                            this.scale = newScale;
-                            this.updateTransform();
-                            this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
-                        }
-                        this.lastPinchDist = dist;
-                        this.lastPinchCenter = center;
+                    } else if (this.isPinchingCanvas) {
+                        const dist = this.getDist(t1, t2);
+                        const newScale = Math.max(0.2, Math.min(5,
+                            this.pinchInitialScale * (dist / this.pinchInitialDist)
+                        ));
+
+                        const cx = this.pinchInitialCenter.x;
+                        const cy = this.pinchInitialCenter.y;
+                        const worldX = (cx - this.pinchInitialPanX) / this.pinchInitialScale;
+                        const worldY = (cy - this.pinchInitialPanY) / this.pinchInitialScale;
+
+                        this.scale = newScale;
+                        this.panX = cx - worldX * newScale;
+                        this.panY = cy - worldY * newScale;
+
+                        this.updateTransform();
+                        this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
                     }
                 }
             }
@@ -406,27 +462,80 @@
             onTouchEnd() {
                 if (this.isResizingItem && this.resizeItem) {
                     this.resizeItem.classList.remove('resizing');
-                    this.saveSpacesMeta(); // 保存新尺寸
+                    this.saveSpacesMeta();
                 }
                 this.isResizingItem = false;
                 this.resizeItem = null;
                 this.resizeItemId = null;
-                this.resizeStartDist = 0;
+                this.isPinchingCanvas = false;
+
+                // 修复：无论 dragItem 是什么，都清除所有 selected
+                this.clearAllSelected();
 
                 if (this.dragItem) {
-                    this.dragItem.classList.remove('selected');
                     this.saveSpacesMeta();
                 }
                 this.isDragging = false;
                 this.isPanning = false;
                 this.dragItem = null;
-                this.lastPinchDist = 0;
+
+                // 延迟清除 touch 标记，防止后续 mouse 事件触发
+                this.touchTimer = setTimeout(() => {
+                    this.touchActive = false;
+                }, 100);
+            }
+
+            cancelDragAndPan() {
+                this.clearAllSelected();
+                if (this.dragItem) this.dragItem.classList.remove('selected');
+                this.isDragging = false;
+                this.isPanning = false;
+                this.dragItem = null;
             }
 
             getDist(t1, t2) {
                 const dx = t1.clientX - t2.clientX;
                 const dy = t1.clientY - t2.clientY;
                 return Math.sqrt(dx*dx + dy*dy);
+            }
+
+            // ===== 通用指针逻辑 =====
+            onPointerDown(x, y, target) {
+                const item = target.closest('.soot-item');
+                if (item) {
+                    if (target.closest('.delete-btn')) return;
+                    this.isDragging = true;
+                    this.dragItem = item;
+                    const rect = item.getBoundingClientRect();
+                    this.dragOffsetX = x - rect.left;
+                    this.dragOffsetY = y - rect.top;
+                    item.classList.add('selected');
+                    const space = this.spaces[this.currentSpaceId];
+                    const maxZ = Math.max(...space.images.map(i => i.zIndex), 0);
+                    item.style.zIndex = maxZ + 1;
+                } else {
+                    this.isPanning = true;
+                    this.startX = x - this.panX;
+                    this.startY = y - this.panY;
+                }
+            }
+
+            onPointerMove(x, y) {
+                if (this.isDragging && this.dragItem) {
+                    const nx = (x - this.dragOffsetX - this.panX) / this.scale;
+                    const ny = (y - this.dragOffsetY - this.panY) / this.scale;
+                    this.dragItem.style.left = nx + 'px';
+                    this.dragItem.style.top = ny + 'px';
+
+                    const id = parseFloat(this.dragItem.dataset.id);
+                    const space = this.spaces[this.currentSpaceId];
+                    const img = space.images.find(i => i.id === id);
+                    if (img) { img.x = nx; img.y = ny; }
+                } else if (this.isPanning) {
+                    this.panX = x - this.startX;
+                    this.panY = y - this.startY;
+                    this.updateTransform();
+                }
             }
 
             // ===== 空间管理 =====
@@ -684,53 +793,6 @@
 
             hideEmptyState() { this.emptyState.style.opacity = '0'; this.emptyState.style.transition = 'opacity 0.5s'; }
             showEmptyState() { this.emptyState.style.opacity = '1'; }
-
-            onPointerDown(x, y, target) {
-                const item = target.closest('.soot-item');
-                if (item) {
-                    if (target.closest('.delete-btn')) return;
-                    this.isDragging = true;
-                    this.dragItem = item;
-                    const rect = item.getBoundingClientRect();
-                    this.dragOffsetX = x - rect.left;
-                    this.dragOffsetY = y - rect.top;
-                    item.classList.add('selected');
-                    const space = this.spaces[this.currentSpaceId];
-                    const maxZ = Math.max(...space.images.map(i => i.zIndex), 0);
-                    item.style.zIndex = maxZ + 1;
-                } else {
-                    this.isPanning = true;
-                    this.startX = x - this.panX;
-                    this.startY = y - this.panY;
-                }
-            }
-
-            onPointerMove(x, y) {
-                if (this.isDragging && this.dragItem) {
-                    const nx = (x - this.dragOffsetX - this.panX) / this.scale;
-                    const ny = (y - this.dragOffsetY - this.panY) / this.scale;
-                    this.dragItem.style.left = nx + 'px';
-                    this.dragItem.style.top = ny + 'px';
-
-                    const id = parseFloat(this.dragItem.dataset.id);
-                    const space = this.spaces[this.currentSpaceId];
-                    const img = space.images.find(i => i.id === id);
-                    if (img) { img.x = nx; img.y = ny; }
-                } else if (this.isPanning) {
-                    this.panX = x - this.startX;
-                    this.panY = y - this.startY;
-                    this.updateTransform();
-                }
-            }
-
-            zoomTo(delta, cx, cy) {
-                const newScale = Math.max(0.2, Math.min(5, this.scale * delta));
-                this.panX = cx - (cx - this.panX) * (newScale / this.scale);
-                this.panY = cy - (cy - this.panY) * (newScale / this.scale);
-                this.scale = newScale;
-                this.updateTransform();
-                this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
-            }
 
             updateTransform() {
                 this.world.style.transform = 'translate(' + this.panX + 'px, ' + this.panY + 'px) scale(' + this.scale + ')';
