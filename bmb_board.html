@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>bmb board</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden; background: #0a0a0a; touch-action: none;
+            overscroll-behavior: none; cursor: grab;
+        }
+        body:active { cursor: grabbing; }
+
+        #world {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            transform-origin: center center; will-change: transform;
+        }
+
+        .soot-item {
+            position: absolute;
+            transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.3s;
+            cursor: pointer; will-change: transform;
+            user-select: none; -webkit-user-select: none;
+        }
+        .soot-item:active { transform: scale(1.08) !important; }
+        .soot-item img {
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            pointer-events: none; display: block;
+        }
+
+        /* 缩放中状态 */
+        .soot-item.resizing {
+            transition: none !important;
+            z-index: 9999 !important;
+        }
+        .soot-item.resizing img {
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.5), 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+        .empty-void { animation: float 6s ease-in-out infinite; }
+        .void-ring { animation: pulse 3s ease-in-out infinite; }
+
+        .icon-btn {
+            width: 44px; height: 44px; display: flex;
+            align-items: center; justify-content: center;
+            border-radius: 12px; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.7);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            transition: all 0.2s; cursor: pointer;
+        }
+        .icon-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.12); }
+        .icon-btn.danger:active { background: rgba(239,68,68,0.2); }
+        .icon-btn.active { background: rgba(255,255,255,0.15); color: #fff; }
+
+        .delete-btn {
+            position: absolute; top: -8px; right: -8px;
+            width: 28px; height: 28px; background: rgba(255,255,255,0.95);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 14px; color: #000; opacity: 0; transition: opacity 0.2s; pointer-events: auto;
+        }
+        .soot-item.selected .delete-btn { opacity: 1; }
+
+        .space-panel {
+            position: fixed; top: 0; left: 0;
+            width: 280px; height: 100vh;
+            background: rgba(10,10,10,0.95);
+            backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            transform: translateX(-100%);
+            transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            z-index: 100; padding: 20px; display: flex; flex-direction: column;
+        }
+        .space-panel.open { transform: translateX(0); }
+
+        .space-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px; border-radius: 12px; cursor: pointer;
+            transition: all 0.2s; margin-bottom: 4px;
+            border: 1px solid transparent;
+        }
+        .space-item:hover { background: rgba(255,255,255,0.04); }
+        .space-item.active {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.12);
+        }
+        .space-item input {
+            background: transparent; border: none; color: #fff;
+            font-size: 14px; outline: none; flex: 1;
+        }
+
+        .overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 90;
+        }
+        .overlay.show { opacity: 1; pointer-events: auto; }
+
+        .mobile-hint {
+            position: fixed; bottom: 80px; left: 50%;
+            transform: translateX(-50%); background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.4);
+            padding: 8px 16px; border-radius: 20px; font-size: 12px;
+            pointer-events: none; opacity: 0; transition: opacity 1s;
+        }
+        .mobile-hint.show { opacity: 1; }
+
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-20px);
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.9); padding: 10px 20px; border-radius: 12px;
+            font-size: 13px; opacity: 0; transition: all 0.3s; z-index: 200;
+            backdrop-filter: blur(20px); pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+</head>
+<body>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="overlay" id="overlay" onclick="app.toggleSpacePanel()"></div>
+
+    <div class="space-panel" id="spacePanel">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-white/90 text-lg font-semibold">boards</h2>
+            <button class="icon-btn" style="width:36px;height:36px;" onclick="app.toggleSpacePanel()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto" id="spaceList" style="margin:0 -8px;padding:0 8px;"></div>
+
+        <button onclick="app.createSpace()" class="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all text-sm">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M12 5v14M5 12h14"/>
+            </svg>
+            new board
+        </button>
+    </div>
+
+    <div class="fixed top-4 left-4 z-50 flex items-center gap-2">
+        <button class="icon-btn active" onclick="app.toggleSpacePanel()" title="切换 board">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+            </svg>
+        </button>
+
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl flex gap-2">
+            <label class="icon-btn" title="上传图片">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <path d="M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+            </label>
+            <button class="icon-btn" onclick="app.resetView()" title="重置视图">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
+                    <path d="M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+                </svg>
+            </button>
+            <button class="icon-btn danger" onclick="app.clearAll()" title="清空当前 board">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    <path d="M10 11v6M14 11v6"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="fixed top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+        <div class="bg-white/5 backdrop-blur border border-white/10 rounded-full px-4 py-1.5 text-white/50 text-xs" id="currentSpaceName">
+            board 1
+        </div>
+    </div>
+
+    <div class="fixed bottom-4 right-4 z-50 bg-white/5 backdrop-blur border border-white/10 rounded-xl px-3 py-1.5 text-white/40 text-xs">
+        <span id="zoomLevel">100%</span>
+    </div>
+
+    <div class="mobile-hint" id="hint">单指拖拽 · 双指缩放画布 · 双指按图片上调整大小</div>
+
+    <div id="world">
+        <div id="emptyState" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+            <div class="empty-void relative w-48 h-48 mb-6 sm:w-64 sm:h-64">
+                <div class="absolute inset-0 border border-white/10 rounded-full void-ring"></div>
+                <div class="absolute inset-4 border border-white/5 rounded-full void-ring" style="animation-delay:0.5s"></div>
+                <div class="absolute inset-8 border border-white/5 rounded-full void-ring" style="animation-delay:1s"></div>
+                <div class="absolute inset-12 border border-white/5 rounded-full void-ring" style="animation-delay:1.5s"></div>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white/20 rounded-full"></div>
+            </div>
+            <h2 class="text-white/50 text-lg font-light mb-1">bmb board</h2>
+        </div>
+        <div id="items"></div>
+    </div>
+
+    <script>
+        class SootWorld {
+            constructor() {
+                this.world = document.getElementById('world');
+                this.items = document.getElementById('items');
+                this.emptyState = document.getElementById('emptyState');
+                this.zoomEl = document.getElementById('zoomLevel');
+                this.spaceList = document.getElementById('spaceList');
+                this.currentSpaceName = document.getElementById('currentSpaceName');
+                this.toast = document.getElementById('toast');
+                this.hint = document.getElementById('hint');
+
+                this.spaces = {};
+                this.currentSpaceId = null;
+                this.scale = 1;
+                this.panX = 0; this.panY = 0;
+                this.isDragging = false; this.isPanning = false;
+                this.dragItem = null;
+                this.dragOffsetX = 0; this.dragOffsetY = 0;
+
+                // 双指缩放画布
+                this.lastPinchDist = 0;
+                this.lastPinchCenter = { x: 0, y: 0 };
+
+                // 双指缩放单张图片
+                this.isResizingItem = false;
+                this.resizeItem = null;
+                this.resizeStartDist = 0;
+                this.resizeStartWidth = 0;
+                this.resizeItemId = null;
+
+                this.objectURLs = new Set();
+
+                this.initDB().then(() => this.init());
+            }
+
+            initDB() {
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open('BmbBoardDB', 1);
+                    req.onerror = () => reject(req.error);
+                    req.onsuccess = () => { this.db = req.result; resolve(); };
+                    req.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains('images')) {
+                            db.createObjectStore('images');
+                        }
+                    };
+                });
+            }
+
+            async saveImageToDB(key, blob) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('images', 'readwrite');
+                    const store = tx.objectStore('images');
+                    const req = store.put(blob, key);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            }
+
+            async getImageFromDB(key) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('images', 'readonly');
+                    const store = tx.objectStore('images');
+                    const req = store.get(key);
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+            }
+
+            async deleteImageFromDB(key) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('images', 'readwrite');
+                    const store = tx.objectStore('images');
+                    const req = store.delete(key);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+            }
+
+            init() {
+                this.loadSpaces();
+                document.getElementById('fileInput').addEventListener('change', e => this.handleFiles(e.target.files));
+                document.body.addEventListener('dragover', e => e.preventDefault());
+                document.body.addEventListener('drop', e => {
+                    e.preventDefault();
+                    this.handleFiles(e.dataTransfer.files);
+                });
+
+                this.world.addEventListener('mousedown', e => this.onPointerDown(e.clientX, e.clientY, e.target));
+                window.addEventListener('mousemove', e => this.onPointerMove(e.clientX, e.clientY));
+                window.addEventListener('mouseup', () => this.onPointerUp());
+
+                this.world.addEventListener('touchstart', e => this.onTouchStart(e), { passive: false });
+                this.world.addEventListener('touchmove', e => this.onTouchMove(e), { passive: false });
+                this.world.addEventListener('touchend', () => this.onTouchEnd());
+
+                window.addEventListener('wheel', e => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                    this.zoomTo(delta, e.clientX, e.clientY);
+                }, { passive: false });
+
+                this.updateTransform();
+
+                if ('ontouchstart' in window) {
+                    setTimeout(() => this.hint.classList.add('show'), 500);
+                    setTimeout(() => this.hint.classList.remove('show'), 6000);
+                }
+            }
+
+            // ===== 触摸事件处理（核心改动） =====
+            onTouchStart(e) {
+                if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    this.onPointerDown(t.clientX, t.clientY, e.target);
+                } else if (e.touches.length === 2) {
+                    // 双指开始：判断是否在图片上
+                    const t1 = e.touches[0];
+                    const t2 = e.touches[1];
+
+                    // 检查两个触摸点是否都在同一张图片上
+                    const el1 = document.elementFromPoint(t1.clientX, t1.clientY);
+                    const el2 = document.elementFromPoint(t2.clientX, t2.clientY);
+                    const item1 = el1 ? el1.closest('.soot-item') : null;
+                    const item2 = el2 ? el2.closest('.soot-item') : null;
+
+                    if (item1 && item1 === item2) {
+                        // 双指在同一张图片上 → 调整该图片大小
+                        this.isResizingItem = true;
+                        this.resizeItem = item1;
+                        this.resizeItemId = parseFloat(item1.dataset.id);
+                        this.resizeStartDist = this.getDist(t1, t2);
+                        this.resizeStartWidth = parseFloat(item1.style.width);
+                        this.isDragging = false;
+                        this.isPanning = false;
+                        this.dragItem = null;
+                        item1.classList.add('resizing');
+                    } else {
+                        // 双指不在同一张图片上 → 缩放画布
+                        this.isDragging = false;
+                        this.isPanning = false;
+                        this.dragItem = null;
+                        this.lastPinchDist = this.getDist(t1, t2);
+                        this.lastPinchCenter = { x: (t1.clientX + t2.clientX)/2, y: (t1.clientY + t2.clientY)/2 };
+                    }
+                }
+            }
+
+            onTouchMove(e) {
+                e.preventDefault();
+                if (e.touches.length === 1) {
+                    const t = e.touches[0];
+                    this.onPointerMove(t.clientX, t.clientY);
+                } else if (e.touches.length === 2) {
+                    const t1 = e.touches[0];
+                    const t2 = e.touches[1];
+
+                    if (this.isResizingItem && this.resizeItem) {
+                        // 调整单张图片大小
+                        const dist = this.getDist(t1, t2);
+                        const ratio = dist / this.resizeStartDist;
+                        const newWidth = Math.max(80, Math.min(800, this.resizeStartWidth * ratio));
+
+                        this.resizeItem.style.width = newWidth + 'px';
+
+                        // 实时更新数据
+                        const space = this.spaces[this.currentSpaceId];
+                        const img = space.images.find(i => i.id === this.resizeItemId);
+                        if (img) img.width = newWidth;
+                    } else {
+                        // 缩放画布
+                        const dist = this.getDist(t1, t2);
+                        const center = { x: (t1.clientX + t2.clientX)/2, y: (t1.clientY + t2.clientY)/2 };
+
+                        if (this.lastPinchDist > 0) {
+                            const ratio = dist / this.lastPinchDist;
+                            const newScale = Math.max(0.2, Math.min(5, this.scale * ratio));
+                            this.panX = center.x - (center.x - this.panX) * (newScale / this.scale);
+                            this.panY = center.y - (center.y - this.panY) * (newScale / this.scale);
+                            this.scale = newScale;
+                            this.updateTransform();
+                            this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
+                        }
+                        this.lastPinchDist = dist;
+                        this.lastPinchCenter = center;
+                    }
+                }
+            }
+
+            onTouchEnd() {
+                if (this.isResizingItem && this.resizeItem) {
+                    this.resizeItem.classList.remove('resizing');
+                    this.saveSpacesMeta(); // 保存新尺寸
+                }
+                this.isResizingItem = false;
+                this.resizeItem = null;
+                this.resizeItemId = null;
+                this.resizeStartDist = 0;
+
+                if (this.dragItem) {
+                    this.dragItem.classList.remove('selected');
+                    this.saveSpacesMeta();
+                }
+                this.isDragging = false;
+                this.isPanning = false;
+                this.dragItem = null;
+                this.lastPinchDist = 0;
+            }
+
+            getDist(t1, t2) {
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                return Math.sqrt(dx*dx + dy*dy);
+            }
+
+            // ===== 空间管理 =====
+            loadSpaces() {
+                const saved = localStorage.getItem('bmb_board_spaces');
+                if (saved) {
+                    this.spaces = JSON.parse(saved);
+                } else {
+                    this.spaces = {
+                        'space_default': { id: 'space_default', name: 'board 1', images: [] }
+                    };
+                }
+
+                const lastSpace = localStorage.getItem('bmb_board_current_space');
+                this.currentSpaceId = lastSpace && this.spaces[lastSpace] ? lastSpace : Object.keys(this.spaces)[0];
+
+                this.renderSpaceList();
+                this.loadCurrentSpace();
+            }
+
+            saveSpacesMeta() {
+                localStorage.setItem('bmb_board_spaces', JSON.stringify(this.spaces));
+                localStorage.setItem('bmb_board_current_space', this.currentSpaceId);
+            }
+
+            createSpace() {
+                const id = 'space_' + Date.now();
+                const num = Object.keys(this.spaces).length + 1;
+                this.spaces[id] = { id, name: 'board ' + num, images: [] };
+                this.saveSpacesMeta();
+                this.renderSpaceList();
+                this.switchSpace(id);
+                this.showToast('created "board ' + num + '"');
+            }
+
+            deleteSpace(id, event) {
+                event.stopPropagation();
+                if (Object.keys(this.spaces).length <= 1) {
+                    this.showToast('keep at least one board');
+                    return;
+                }
+                if (!confirm('delete "' + this.spaces[id].name + '"? images will be lost')) return;
+
+                const space = this.spaces[id];
+                space.images.forEach(img => {
+                    if (img.blobKey) this.deleteImageFromDB(img.blobKey);
+                });
+
+                delete this.spaces[id];
+                this.saveSpacesMeta();
+
+                if (this.currentSpaceId === id) {
+                    const first = Object.keys(this.spaces)[0];
+                    this.switchSpace(first);
+                } else {
+                    this.renderSpaceList();
+                }
+                this.showToast('board deleted');
+            }
+
+            renameSpace(id, newName) {
+                if (!newName.trim()) return;
+                this.spaces[id].name = newName.trim();
+                this.saveSpacesMeta();
+                if (this.currentSpaceId === id) {
+                    this.currentSpaceName.textContent = newName.trim();
+                }
+                this.renderSpaceList();
+            }
+
+            switchSpace(id) {
+                if (id === this.currentSpaceId) {
+                    this.toggleSpacePanel();
+                    return;
+                }
+                this.currentSpaceId = id;
+                this.saveSpacesMeta();
+                this.loadCurrentSpace();
+                this.renderSpaceList();
+                this.toggleSpacePanel();
+                this.showToast('switched to "' + this.spaces[id].name + '"');
+            }
+
+            renderSpaceList() {
+                this.spaceList.innerHTML = '';
+                Object.values(this.spaces).forEach(space => {
+                    const el = document.createElement('div');
+                    el.className = 'space-item ' + (space.id === this.currentSpaceId ? 'active' : '');
+                    el.onclick = () => this.switchSpace(space.id);
+
+                    const isActive = space.id === this.currentSpaceId;
+                    el.innerHTML = `
+                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:` + (isActive?'#fff':'rgba(255,255,255,0.4)') + `;min-width:18px;">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M3 9h18"/>
+                        </svg>
+                        <input type="text" value="` + space.name + `" 
+                            onkeydown="if(event.key==='Enter'){this.blur()}"
+                            onblur="app.renameSpace('` + space.id + `', this.value)"
+                            onclick="event.stopPropagation()"
+                            style="color:` + (isActive?'#fff':'rgba(255,255,255,0.6)') + `;"
+                        />
+                        <span class="text-white/20 text-xs ml-auto">` + space.images.length + `</span>
+                        ` + (Object.keys(this.spaces).length > 1 ? `
+                        <button onclick="app.deleteSpace('` + space.id + `', event)" style="color:rgba(255,255,255,0.2);padding:4px;margin-left:4px;" onmouseover="this.style.color='#fca5a5'" onmouseout="this.style.color='rgba(255,255,255,0.2)'">
+                            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>` : '') + `
+                    `;
+                    this.spaceList.appendChild(el);
+                });
+            }
+
+            async loadCurrentSpace() {
+                this.revokeAllURLs();
+                this.items.innerHTML = '';
+
+                const space = this.spaces[this.currentSpaceId];
+                this.currentSpaceName.textContent = space.name;
+
+                if (!space.images || space.images.length === 0) {
+                    this.showEmptyState();
+                    this.scale = 1; this.panX = 0; this.panY = 0;
+                    this.updateTransform();
+                    return;
+                }
+
+                this.hideEmptyState();
+
+                for (const imgData of space.images) {
+                    if (!imgData.blobKey) continue;
+                    try {
+                        const blob = await this.getImageFromDB(imgData.blobKey);
+                        if (!blob) continue;
+                        const url = URL.createObjectURL(blob);
+                        this.objectURLs.add(url);
+                        this.renderItem({ ...imgData, src: url });
+                    } catch (e) {
+                        console.error('load image failed', e);
+                    }
+                }
+
+                this.scale = 1; this.panX = 0; this.panY = 0;
+                this.updateTransform();
+            }
+
+            revokeAllURLs() {
+                this.objectURLs.forEach(url => URL.revokeObjectURL(url));
+                this.objectURLs.clear();
+            }
+
+            toggleSpacePanel() {
+                const panel = document.getElementById('spacePanel');
+                const overlay = document.getElementById('overlay');
+                panel.classList.toggle('open');
+                overlay.classList.toggle('show');
+            }
+
+            showToast(msg) {
+                this.toast.textContent = msg;
+                this.toast.classList.add('show');
+                setTimeout(() => this.toast.classList.remove('show'), 2000);
+            }
+
+            async handleFiles(files) {
+                for (const file of Array.from(files)) {
+                    if (!file.type.startsWith('image/')) continue;
+                    await this.addImage(file);
+                }
+                this.saveSpacesMeta();
+            }
+
+            async addImage(file) {
+                const id = Date.now() + Math.random();
+                const blobKey = 'img_' + id;
+
+                await this.saveImageToDB(blobKey, file);
+
+                const spread = 250;
+                const x = window.innerWidth/2 + (Math.random()-0.5)*spread - 100;
+                const y = window.innerHeight/2 + (Math.random()-0.5)*spread - 100;
+                const size = Math.min(280, Math.max(160, window.innerWidth * 0.35));
+                const rotation = (Math.random()-0.5) * 20;
+                const zIndex = Math.floor(Math.random()*100);
+
+                const imgData = { id, blobKey, x, y, width: size, rotation, zIndex };
+                this.spaces[this.currentSpaceId].images.push(imgData);
+
+                const url = URL.createObjectURL(file);
+                this.objectURLs.add(url);
+                this.renderItem({ ...imgData, src: url });
+
+                this.hideEmptyState();
+                this.renderSpaceList();
+            }
+
+            renderItem(item) {
+                const el = document.createElement('div');
+                el.className = 'soot-item';
+                el.dataset.id = item.id;
+                el.style.left = item.x + 'px';
+                el.style.top = item.y + 'px';
+                el.style.width = item.width + 'px';
+                el.style.zIndex = item.zIndex;
+                el.style.transform = 'rotate(' + item.rotation + 'deg)';
+
+                el.innerHTML = `
+                    <div class="relative">
+                        <img src="` + item.src + `" class="w-full h-auto rounded-lg" alt="" draggable="false">
+                        <div class="delete-btn" onclick="app.deleteImage(` + item.id + `, event)">×</div>
+                    </div>
+                `;
+                this.items.appendChild(el);
+            }
+
+            async deleteImage(id, e) {
+                e.stopPropagation();
+                const space = this.spaces[this.currentSpaceId];
+                const idx = space.images.findIndex(i => i.id === id);
+                if (idx === -1) return;
+
+                const imgData = space.images[idx];
+                if (imgData.blobKey) await this.deleteImageFromDB(imgData.blobKey);
+
+                space.images.splice(idx, 1);
+                this.saveSpacesMeta();
+
+                const el = document.querySelector('[data-id="' + id + '"]');
+                if (el) {
+                    el.style.transform = 'scale(0) rotate(180deg)';
+                    el.style.opacity = '0';
+                    setTimeout(() => el.remove(), 300);
+                }
+
+                if (space.images.length === 0) this.showEmptyState();
+                this.renderSpaceList();
+            }
+
+            clearAll() {
+                const space = this.spaces[this.currentSpaceId];
+                if (!space.images.length) return;
+                if (!confirm('clear all images in current board?')) return;
+
+                space.images.forEach(img => {
+                    if (img.blobKey) this.deleteImageFromDB(img.blobKey);
+                });
+                space.images = [];
+                this.saveSpacesMeta();
+
+                this.revokeAllURLs();
+                this.items.innerHTML = '';
+                this.showEmptyState();
+                this.renderSpaceList();
+                this.showToast('cleared');
+            }
+
+            hideEmptyState() { this.emptyState.style.opacity = '0'; this.emptyState.style.transition = 'opacity 0.5s'; }
+            showEmptyState() { this.emptyState.style.opacity = '1'; }
+
+            onPointerDown(x, y, target) {
+                const item = target.closest('.soot-item');
+                if (item) {
+                    if (target.closest('.delete-btn')) return;
+                    this.isDragging = true;
+                    this.dragItem = item;
+                    const rect = item.getBoundingClientRect();
+                    this.dragOffsetX = x - rect.left;
+                    this.dragOffsetY = y - rect.top;
+                    item.classList.add('selected');
+                    const space = this.spaces[this.currentSpaceId];
+                    const maxZ = Math.max(...space.images.map(i => i.zIndex), 0);
+                    item.style.zIndex = maxZ + 1;
+                } else {
+                    this.isPanning = true;
+                    this.startX = x - this.panX;
+                    this.startY = y - this.panY;
+                }
+            }
+
+            onPointerMove(x, y) {
+                if (this.isDragging && this.dragItem) {
+                    const nx = (x - this.dragOffsetX - this.panX) / this.scale;
+                    const ny = (y - this.dragOffsetY - this.panY) / this.scale;
+                    this.dragItem.style.left = nx + 'px';
+                    this.dragItem.style.top = ny + 'px';
+
+                    const id = parseFloat(this.dragItem.dataset.id);
+                    const space = this.spaces[this.currentSpaceId];
+                    const img = space.images.find(i => i.id === id);
+                    if (img) { img.x = nx; img.y = ny; }
+                } else if (this.isPanning) {
+                    this.panX = x - this.startX;
+                    this.panY = y - this.startY;
+                    this.updateTransform();
+                }
+            }
+
+            zoomTo(delta, cx, cy) {
+                const newScale = Math.max(0.2, Math.min(5, this.scale * delta));
+                this.panX = cx - (cx - this.panX) * (newScale / this.scale);
+                this.panY = cy - (cy - this.panY) * (newScale / this.scale);
+                this.scale = newScale;
+                this.updateTransform();
+                this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
+            }
+
+            updateTransform() {
+                this.world.style.transform = 'translate(' + this.panX + 'px, ' + this.panY + 'px) scale(' + this.scale + ')';
+            }
+
+            resetView() {
+                this.scale = 1; this.panX = 0; this.panY = 0;
+                this.updateTransform(); this.zoomEl.textContent = '100%';
+            }
+        }
+
+        const app = new SootWorld();
+    </script>
+</body>
+</html>
