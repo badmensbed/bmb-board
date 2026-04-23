@@ -24,9 +24,12 @@
 
         .soot-item {
             position: absolute;
-            transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.3s;
+            transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.3s, left 0.5s ease, top 0.5s ease;
             cursor: pointer; will-change: transform;
             user-select: none; -webkit-user-select: none;
+        }
+        .soot-item.layouting {
+            transition: left 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), top 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.3s, filter 0.3s;
         }
         .soot-item:active { transform: scale(1.08) !important; }
         .soot-item img {
@@ -55,9 +58,9 @@
         .void-ring { animation: pulse 3s ease-in-out infinite; }
 
         .icon-btn {
-            width: 44px; height: 44px; display: flex;
+            width: 36px; height: 36px; display: flex;
             align-items: center; justify-content: center;
-            border-radius: 12px; background: rgba(255,255,255,0.06);
+            border-radius: 10px; background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.08);
             color: rgba(255,255,255,0.7);
             backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
@@ -138,8 +141,8 @@
     <div class="space-panel" id="spacePanel">
         <div class="flex items-center justify-between mb-6">
             <h2 class="text-white/90 text-lg font-semibold">boards</h2>
-            <button class="icon-btn" style="width:36px;height:36px;" onclick="app.toggleSpacePanel()">
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <button class="icon-btn" style="width:32px;height:32px;" onclick="app.toggleSpacePanel()">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                     <path d="M18 6L6 18M6 6l12 12"/>
                 </svg>
             </button>
@@ -155,32 +158,44 @@
         </button>
     </div>
 
-    <div class="fixed top-4 left-4 z-50 flex items-center gap-2">
+    <!-- 左上角：切换 board -->
+    <div class="fixed top-4 left-4 z-50">
         <button class="icon-btn active" onclick="app.toggleSpacePanel()" title="切换 board">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <rect x="3" y="3" width="7" height="7" rx="1.5"/>
                 <rect x="14" y="3" width="7" height="7" rx="1.5"/>
                 <rect x="3" y="14" width="7" height="7" rx="1.5"/>
                 <rect x="14" y="14" width="7" height="7" rx="1.5"/>
             </svg>
         </button>
+    </div>
 
-        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl flex gap-2">
+    <!-- 左下角：功能按钮 -->
+    <div class="fixed bottom-4 left-4 z-50 flex items-center gap-1.5">
+        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl flex gap-1.5">
             <label class="icon-btn" title="上传图片">
-                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                     <path d="M17 8l-5-5-5 5M12 3v12"/>
                 </svg>
                 <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
             </label>
+            <button class="icon-btn" onclick="app.autoLayout()" title="一键排版">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                </svg>
+            </button>
             <button class="icon-btn" onclick="app.resetView()" title="重置视图">
-                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
                     <path d="M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
                 </svg>
             </button>
             <button class="icon-btn danger" onclick="app.clearAll()" title="清空当前 board">
-                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                     <path d="M10 11v6M14 11v6"/>
                 </svg>
@@ -247,7 +262,6 @@
                 this.resizeStartDist = 0;
                 this.resizeStartWidth = 0;
 
-                // 修复：touch/mouse 事件竞争标记
                 this.touchActive = false;
 
                 this.objectURLs = new Set();
@@ -308,16 +322,14 @@
                     this.handleFiles(e.dataTransfer.files);
                 });
 
-                // 桌面端 mouse 事件
                 this.world.addEventListener('mousedown', e => this.onMouseDown(e));
                 window.addEventListener('mousemove', e => this.onMouseMove(e));
                 window.addEventListener('mouseup', () => this.onMouseUp());
 
-                // 移动端 touch 事件
-                this.world.addEventListener('touchstart', e => this.onTouchStart(e), { passive: false });
-                this.world.addEventListener('touchmove', e => this.onTouchMove(e), { passive: false });
-                this.world.addEventListener('touchend', () => this.onTouchEnd());
-                this.world.addEventListener('touchcancel', () => this.onTouchEnd());
+                document.addEventListener('touchstart', e => this.onTouchStart(e), { passive: false });
+                document.addEventListener('touchmove', e => this.onTouchMove(e), { passive: false });
+                document.addEventListener('touchend', () => this.onTouchEnd());
+                document.addEventListener('touchcancel', () => this.onTouchEnd());
 
                 window.addEventListener('wheel', e => {
                     e.preventDefault();
@@ -333,14 +345,12 @@
                 }
             }
 
-            // ===== 清除所有 selected 类 =====
             clearAllSelected() {
                 document.querySelectorAll('.soot-item.selected').forEach(el => {
                     el.classList.remove('selected');
                 });
             }
 
-            // ===== 以任意点为中心自然缩放 =====
             zoomTo(delta, cx, cy) {
                 const worldX = (cx - this.panX) / this.scale;
                 const worldY = (cy - this.panY) / this.scale;
@@ -352,9 +362,7 @@
                 this.zoomEl.textContent = Math.round(this.scale * 100) + '%';
             }
 
-            // ===== 桌面端 Mouse 事件 =====
             onMouseDown(e) {
-                // 修复：如果 touch 正在活跃，忽略 mouse 事件
                 if (this.touchActive) return;
                 this.onPointerDown(e.clientX, e.clientY, e.target);
             }
@@ -375,21 +383,22 @@
                 this.dragItem = null;
             }
 
-            // ===== 移动端 Touch 事件 =====
             onTouchStart(e) {
                 this.touchActive = true;
                 clearTimeout(this.touchTimer);
 
+                if (e.target.closest('.icon-btn, .space-panel, .overlay.show, .toast, #currentSpaceName, #zoomLevel')) {
+                    return;
+                }
+
                 if (e.touches.length === 1) {
                     const t = e.touches[0];
-                    // 修复：先清除所有旧的 selected，再设置新的
                     this.clearAllSelected();
                     this.onPointerDown(t.clientX, t.clientY, e.target);
                 } else if (e.touches.length === 2) {
                     const t1 = e.touches[0];
                     const t2 = e.touches[1];
 
-                    // 清除所有选中状态
                     this.clearAllSelected();
                     this.cancelDragAndPan();
 
@@ -421,6 +430,11 @@
 
             onTouchMove(e) {
                 e.preventDefault();
+
+                if (!this.isDragging && !this.isPanning && !this.isPinchingCanvas && !this.isResizingItem) {
+                    return;
+                }
+
                 if (e.touches.length === 1) {
                     const t = e.touches[0];
                     this.onPointerMove(t.clientX, t.clientY);
@@ -469,7 +483,6 @@
                 this.resizeItemId = null;
                 this.isPinchingCanvas = false;
 
-                // 修复：无论 dragItem 是什么，都清除所有 selected
                 this.clearAllSelected();
 
                 if (this.dragItem) {
@@ -479,7 +492,6 @@
                 this.isPanning = false;
                 this.dragItem = null;
 
-                // 延迟清除 touch 标记，防止后续 mouse 事件触发
                 this.touchTimer = setTimeout(() => {
                     this.touchActive = false;
                 }, 100);
@@ -499,7 +511,6 @@
                 return Math.sqrt(dx*dx + dy*dy);
             }
 
-            // ===== 通用指针逻辑 =====
             onPointerDown(x, y, target) {
                 const item = target.closest('.soot-item');
                 if (item) {
@@ -538,7 +549,76 @@
                 }
             }
 
-            // ===== 空间管理 =====
+            autoLayout() {
+                const space = this.spaces[this.currentSpaceId];
+                const images = space.images;
+                if (!images || images.length === 0) {
+                    this.showToast('no images to layout');
+                    return;
+                }
+
+                const n = images.length;
+                const cols = Math.ceil(Math.sqrt(n));
+                const rows = Math.ceil(n / cols);
+
+                const viewportW = window.innerWidth;
+                const viewportH = window.innerHeight;
+                const padding = Math.min(viewportW, viewportH) * 0.08;
+                const gap = Math.min(viewportW, viewportH) * 0.06;
+
+                const availW = viewportW - padding * 2;
+                const availH = viewportH - padding * 2;
+
+                const cellW = (availW - gap * (cols - 1)) / cols;
+                const cellH = (availH - gap * (rows - 1)) / rows;
+                const targetSize = Math.min(cellW, cellH, 320);
+
+                const gridW = cols * targetSize + (cols - 1) * gap;
+                const gridH = rows * targetSize + (rows - 1) * gap;
+                const startX = (viewportW - gridW) / 2;
+                const startY = (viewportH - gridH) / 2;
+
+                document.querySelectorAll('.soot-item').forEach(el => {
+                    el.classList.add('layouting');
+                });
+
+                images.forEach((img, i) => {
+                    const col = i % cols;
+                    const row = Math.floor(i / cols);
+
+                    let x = startX + col * (targetSize + gap);
+                    let y = startY + row * (targetSize + gap);
+
+                    const jitter = gap * 0.15;
+                    x += (Math.random() - 0.5) * jitter * 2;
+                    y += (Math.random() - 0.5) * jitter * 2;
+
+                    const rotation = (Math.random() - 0.5) * 16;
+
+                    img.x = x;
+                    img.y = y;
+                    img.width = targetSize;
+                    img.rotation = rotation;
+
+                    const el = document.querySelector('[data-id="' + img.id + '"]');
+                    if (el) {
+                        el.style.left = x + 'px';
+                        el.style.top = y + 'px';
+                        el.style.width = targetSize + 'px';
+                        el.style.transform = 'rotate(' + rotation + 'deg)';
+                    }
+                });
+
+                this.saveSpacesMeta();
+                this.showToast('layout applied');
+
+                setTimeout(() => {
+                    document.querySelectorAll('.soot-item').forEach(el => {
+                        el.classList.remove('layouting');
+                    });
+                }, 600);
+            }
+
             loadSpaces() {
                 const saved = localStorage.getItem('bmb_board_spaces');
                 if (saved) {
